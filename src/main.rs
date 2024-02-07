@@ -10,8 +10,8 @@ use tower_http::{
     set_header::SetResponseHeaderLayer,
 };
 
-use axum::response::Json;
-use serde_json::Value;
+use axum::response::{Json, ErrorResponse};
+use serde_json::{Value, json};
 
 async fn config(state: State<String>) -> impl IntoResponse {
     let env = state.as_str();
@@ -24,18 +24,20 @@ async fn config(state: State<String>) -> impl IntoResponse {
 
     let config = serde_json::from_str(&result);
 
-    let config: Value = match config {
+    let mut config: Value = match config {
         Ok(config) => config,
         Err(_) => Value::Null,
     };
 
     if config.is_null() {
-        Json(serde_json::json!({
+        return Json(json!({
             "error": "Failed to parse config file"
         }))
-    } else {
-        Json(config)
     }
+
+	config["env"] = json!(env);
+
+	Json(config)
 }
 
 #[derive(Debug, Clone)]
