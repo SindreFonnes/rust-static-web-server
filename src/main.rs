@@ -1,6 +1,5 @@
 use axum::{
-    extract::State,
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderValue},
     routing::get,
     Router,
 };
@@ -33,35 +32,23 @@ fn insert_config_overwrite(mut config: Value, key: String, value: String) -> Res
     Ok(config)
 }
 
-async fn config(
-    State(Environment(env)): State<Environment>,
-) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    let config_file = std::fs::read_to_string(format!("./config/{env}.json")).map_err(|error| {
-        println!("{error}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unable to load config file.",
-        )
-    })?;
+fn read_config_file(Environment(env): Environment) -> Result<Json<Value>, String> {
+    let config_file = std::fs::read_to_string(format!("./config/{env}.json"))
+        .map_err(|error| format!("Unable to load config file. {}", error))?;
 
-    let mut config: Value = serde_json::from_str(&config_file).map_err(|error| {
-        println!("{error}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Unable to parse config file.",
-        )
-    })?;
+    let mut config: Value = serde_json::from_str(&config_file)
+        .map_err(|error| format!("Unable to parse config file. {}", error))?;
 
     if config.is_null() {
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Config should not be null.",
-        ));
+        return Err("Config should not be null.".to_owned());
+    }
+
+    if config.is_null() {
+        return Err("Config should not be null.".to_owned());
     }
 
     std::env::vars().for_each(|(key, value)| {
         if key.starts_with("CONFIG__") {
-            println!("{key}: {value}");
             let key = key.replace("CONFIG__", "");
 
             match insert_config_overwrite(config.clone(), key, value) {
@@ -86,6 +73,8 @@ async fn main() {
     let address = std::env::var("ADDRESS").unwrap_or("localhost:3000".into());
     let environment = Environment(std::env::var("ENV").unwrap_or("local".into()));
 
+    let config = read_config_file(environment.clone()).unwrap();
+
     let serve_dir = ServeDir::new("public").not_found_service(ServeFile::new("public/index.html"));
 
     let app = Router::new()
@@ -97,7 +86,7 @@ async fn main() {
 			header::CONTENT_SECURITY_POLICY,
 			HeaderValue::from_static("default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'"),
 		))
-		.route("/config", get(config));
+		.route("/config", get(|| async { config }));
 
     let app = app.with_state(environment);
 
