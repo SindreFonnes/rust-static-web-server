@@ -70,7 +70,6 @@ struct Environment(String);
 
 #[tokio::main]
 async fn main() {
-    let address = std::env::var("ADDRESS").unwrap_or("localhost:3000".into());
     let environment = Environment(std::env::var("ENV").unwrap_or("local".into()));
 
     let config = match read_config_file(environment.clone()) {
@@ -84,6 +83,19 @@ async fn main() {
     let client_config = match config.get("CLIENT") {
         Some(client) => Json(client.clone()),
         None => Json(json!({})),
+    };
+
+    let server_config = match config.get("SERVER") {
+        Some(server) => server.clone(),
+        None => {
+            println!("Server config not found.");
+            Value::Null
+        }
+    };
+
+    let address = match server_config.get("PORT") {
+        Some(port) => format!("localhost:{port}"),
+        None => "localhost:3000".to_owned(),
     };
 
     let serve_dir = ServeDir::new("public").not_found_service(ServeFile::new("public/index.html"));
