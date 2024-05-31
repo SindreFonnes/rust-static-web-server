@@ -12,6 +12,27 @@ use tower_http::{
 use axum::response::Json;
 use serde_json::{json, Value};
 
+fn insert_config_overwrite(mut config: Value, key: String, value: String) -> Result<Value, String> {
+    let sub_keys = key.split("__").collect::<Vec<&str>>();
+
+    let mut current_sub_object: &mut Value = &mut config;
+
+    for key in sub_keys {
+        match current_sub_object.get_mut(key) {
+            Some(value) => {
+                current_sub_object = value;
+            }
+            None => {
+                return Err("Key not found.".to_owned());
+            }
+        }
+    }
+
+    *current_sub_object = json!(value);
+
+    Ok(config)
+}
+
 async fn config(
     State(Environment(env)): State<Environment>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
@@ -38,7 +59,21 @@ async fn config(
         ));
     }
 
-    config["env"] = json!(env);
+    std::env::vars().for_each(|(key, value)| {
+        if key.starts_with("CONFIG__") {
+            println!("{key}: {value}");
+            let key = key.replace("CONFIG__", "");
+
+            match insert_config_overwrite(config.clone(), key, value) {
+                Ok(next_config) => {
+                    config = next_config;
+                }
+                Err(error) => {
+                    println!("{error}");
+                }
+            }
+        }
+    });
 
     Ok(Json(config))
 }
