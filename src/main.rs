@@ -109,7 +109,9 @@ async fn main() {
 			header::CONTENT_SECURITY_POLICY,
 			HeaderValue::from_static("default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'"),
 		))
-		.route("/config", get(|| async { client_config }));
+		.route("/config", get(|| async { client_config }))
+        .route("/ping", get(|| async { "pong" }))
+        .route("/healthz", get(|| async { "ok" }));
 
     let app = app.with_state(environment);
 
