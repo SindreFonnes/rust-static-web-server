@@ -32,7 +32,7 @@ fn insert_config_overwrite(mut config: Value, key: String, value: String) -> Res
     Ok(config)
 }
 
-fn read_config_file(Environment(env): Environment) -> Result<Json<Value>, String> {
+fn read_config_file(Environment(env): Environment) -> Result<Value, String> {
     let config_file = std::fs::read_to_string(format!("./config/{env}.json"))
         .map_err(|error| format!("Unable to load config file. {}", error))?;
 
@@ -62,7 +62,7 @@ fn read_config_file(Environment(env): Environment) -> Result<Json<Value>, String
         }
     });
 
-    Ok(Json(config))
+    Ok(config)
 }
 
 #[derive(Debug, Clone)]
@@ -73,7 +73,18 @@ async fn main() {
     let address = std::env::var("ADDRESS").unwrap_or("localhost:3000".into());
     let environment = Environment(std::env::var("ENV").unwrap_or("local".into()));
 
-    let config = read_config_file(environment.clone()).unwrap();
+    let config = match read_config_file(environment.clone()) {
+        Ok(config) => config,
+        Err(error) => {
+            println!("{error}");
+            Value::Null
+        }
+    };
+
+    let client_config = match config.get("CLIENT") {
+        Some(client) => Json(client.clone()),
+        None => Json(json!({})),
+    };
 
     let serve_dir = ServeDir::new("public").not_found_service(ServeFile::new("public/index.html"));
 
@@ -86,7 +97,7 @@ async fn main() {
 			header::CONTENT_SECURITY_POLICY,
 			HeaderValue::from_static("default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'"),
 		))
-		.route("/config", get(|| async { config }));
+		.route("/config", get(|| async { client_config }));
 
     let app = app.with_state(environment);
 
