@@ -1,8 +1,4 @@
-use axum::{
-    http::{header, HeaderValue},
-    routing::get,
-    Router,
-};
+use axum::{http::header, routing::get, Router};
 use tower_http::{
     services::{ServeDir, ServeFile},
     set_header::SetResponseHeaderLayer,
@@ -11,62 +7,13 @@ use tower_http::{
 use axum::response::Json;
 use serde_json::{json, Value};
 
-fn insert_config_overwrite(mut config: Value, key: String, value: String) -> Result<Value, String> {
-    let sub_keys = key.split("__").collect::<Vec<&str>>();
+mod config_parser;
+mod csp;
+mod enviroment;
 
-    let mut current_sub_object: &mut Value = &mut config;
-
-    for key in sub_keys {
-        match current_sub_object.get_mut(key) {
-            Some(value) => {
-                current_sub_object = value;
-            }
-            None => {
-                return Err("Key not found.".to_owned());
-            }
-        }
-    }
-
-    *current_sub_object = json!(value);
-
-    Ok(config)
-}
-
-fn read_config_file(Environment(env): Environment) -> Result<Value, String> {
-    let config_file = std::fs::read_to_string(format!("./config/{env}.json"))
-        .map_err(|error| format!("Unable to load config file. {}", error))?;
-
-    let mut config: Value = serde_json::from_str(&config_file)
-        .map_err(|error| format!("Unable to parse config file. {}", error))?;
-
-    if config.is_null() {
-        return Err("Config should not be null.".to_owned());
-    }
-
-    if config.is_null() {
-        return Err("Config should not be null.".to_owned());
-    }
-
-    std::env::vars().for_each(|(key, value)| {
-        if key.starts_with("CONFIG__") {
-            let key = key.replace("CONFIG__", "");
-
-            match insert_config_overwrite(config.clone(), key, value) {
-                Ok(next_config) => {
-                    config = next_config;
-                }
-                Err(error) => {
-                    println!("{error}");
-                }
-            }
-        }
-    });
-
-    Ok(config)
-}
-
-#[derive(Debug, Clone)]
-struct Environment(String);
+use config_parser::read_config_file;
+use csp::get_default_csp;
+use enviroment::Environment;
 
 #[tokio::main]
 async fn main() {
@@ -93,23 +40,22 @@ async fn main() {
         }
     };
 
+    let csp_config = csp::get_csp_rules(&server_config).unwrap_or_else(|| get_default_csp());
+
     let address = match server_config.get("PORT") {
-        Some(port) => format!("localhost:{port}"),
-        None => "localhost:3000".to_owned(),
+        Some(port) => format!("0.0.0.0:{port}"),
+        None => "0.0.0.0:8080".to_owned(),
     };
 
     let serve_dir = ServeDir::new("public").not_found_service(ServeFile::new("public/index.html"));
 
     let app = Router::new()
-		.nest_service(
-			"/",
-			serve_dir,
-		)
-		.layer(SetResponseHeaderLayer::appending(
-			header::CONTENT_SECURITY_POLICY,
-			HeaderValue::from_static("default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'"),
-		))
-		.route("/config", get(|| async { client_config }))
+        .nest_service("/", serve_dir)
+        .layer(SetResponseHeaderLayer::appending(
+            header::CONTENT_SECURITY_POLICY,
+            csp_config,
+        ))
+        .route("/config", get(|| async { client_config }))
         .route("/ping", get(|| async { "pong" }))
         .route("/healthz", get(|| async { "ok" }));
 
